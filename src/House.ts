@@ -16,15 +16,21 @@ export default class House extends Container {
         this.lift = new Lift();
         this.lift.position.set(20, 460);
         this.addChild(this.lift);
-
         this.startSpawningPeople();
         this.startLiftOperation();
+
+        this.lift.on('passengerUnloaded', (passenger: People) => {
+            // Видаляємо людину з масиву people та з сцени, коли вона виходить з ліфта
+            this.addChild(passenger);
+        })
+
+
     }
 
     private createBuilding(): void {
         // Створює графічне представлення будинку: контур будівлі, лінії поверхів та підписи рівнів.
         const view = new Graphics();
-        view.setStrokeStyle({ width: 3, color: 0x00ff00, alpha: 1 });
+        view.setStrokeStyle({ width: 3, color: 0x000000, alpha: 1 });
         view.drawRect(20, 40, 880, 480);
 
         const lineLength: number = 800;
@@ -47,11 +53,12 @@ export default class House extends Container {
         this.addChild(view);
     }
 
-    private startSpawningPeople(): void {
+    private async startSpawningPeople(): Promise<void> {
 
-        for (let i = 0; i < 3; i++) {
+        for (; ;) {
             const floor = Math.floor(Math.random() * this.floorCount) + 1;
             this.spawnPerson(floor);
+            await new Promise(resolve => setTimeout(resolve, 5000));
         }
 
     }
@@ -71,22 +78,25 @@ export default class House extends Container {
             // Коли людина дійшла до ліфта, вона готова до завантаження
         });
     }
-    // House.ts
+
     private async startLiftOperation(): Promise<void> {
+        // Основний цикл, який визначає напрямок ліфта та обробляє завантаження/висадку пасажирів.
         while (true) {
             await this.determineLiftDirection();
 
-            if ((this.lift.currentFloor === 1 && this.lift.direction === 'up') ||
-                (this.lift.currentFloor === 8 && this.lift.direction === 'down')) {
-                const waitingPeople = this.getPeopleWaitingOnFloor(this.lift.currentFloor);
-                if (waitingPeople.length > 0 && this.lift.hasSpace()) {
-                    await this.lift.loadPassengers(waitingPeople);
-                }
+
+            const waitingPeople = this.getPeopleWaitingOnFloor(this.lift.currentFloor);
+
+            if (waitingPeople.length > 0 && this.lift.hasSpace()) {
+
+                await this.lift.loadPassengers(waitingPeople);
+
             }
 
             if (this.lift.direction === 'idle') {
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 600));
                 continue;
+
             }
 
             // Отримуємо список всіх поверхів у поточному напрямку до кінцевої точки
@@ -94,33 +104,38 @@ export default class House extends Container {
 
             if (stopFloors.length === 0) {
                 this.lift.direction = 'idle';
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 600));
                 continue;
             }
 
             // Рухаємо ліфт по всіх поверхах до кінцевої точки
             for (const floor of stopFloors) {
                 await this.lift.goToFloor(floor);
-
                 // Висаджуємо пасажирів
                 await this.lift.unloadPassengers();
 
                 // Завантажуємо нових пасажирів
                 const waitingPeople = this.getPeopleWaitingOnFloor(floor);
+
                 if (waitingPeople.length > 0 && this.lift.hasSpace()) {
+
                     await this.lift.loadPassengers(waitingPeople);
                 }
             }
 
             // Якщо ліфт порожній, змінюємо напрямок
             if (this.lift.passengers.length === 0) {
+
                 this.lift.direction = this.lift.direction === 'up' ? 'down' : 'up';
+
                 this.lift.lastFullDirection = this.lift.direction;
+
             }
         }
     }
 
     private async determineLiftDirection(): Promise<void> {
+
         // Якщо ліфт не порожній, продовжуємо рух у поточному напрямку
         if (this.lift.passengers.length > 0) {
             return;
@@ -139,20 +154,24 @@ export default class House extends Container {
 
         // Особливі випадки для крайніх поверхів
         if (this.lift.currentFloor === 1) {
+
             const peopleOnFirstFloor = this.people.filter(p =>
                 !p.isInLift &&
                 p.floor === 1 &&
                 p.getDirection() === 'up'
+
             );
 
             if (peopleOnFirstFloor.length > 0) {
                 this.lift.direction = 'up';
                 return;
+
             }
         }
 
         if (this.lift.currentFloor === 8) {
             const peopleOnEighthFloor = this.people.filter(p =>
+
                 !p.isInLift &&
                 p.floor === 8 &&
                 p.getDirection() === 'down'
@@ -168,18 +187,9 @@ export default class House extends Container {
         const hasUp = upPeople.length > 0;
         const hasDown = downPeople.length > 0;
 
-        // Якщо є пасажири тільки в одному напрямку
-        if (hasUp && !hasDown) {
-            this.lift.direction = 'up';
-            return;
-        }
-        if (hasDown && !hasUp) {
-            this.lift.direction = 'down';
-            return;
-        }
 
         // Якщо є пасажири в обох напрямках
-        if (hasUp && hasDown) {
+        if (hasUp || hasDown) {
             // Визначаємо, чи є пасажири вище поточного поверху, які потребують руху вниз
             const peopleAboveNeedingDown = this.people.filter(p =>
                 !p.isInLift &&
@@ -196,6 +206,7 @@ export default class House extends Container {
 
             // Якщо є пасажири вище, які потребують руху вниз, спершу обслуговуємо їх
             if (peopleAboveNeedingDown.length > 0 && this.lift.lastFullDirection !== 'up') {
+                //
                 this.lift.direction = 'up';
                 this.lift.lastFullDirection = 'up';
                 return;
@@ -203,6 +214,7 @@ export default class House extends Container {
 
             // Якщо є пасажири нижче, які потребують руху вгору, спершу обслуговуємо їх
             if (peopleBelowNeedingUp.length > 0 && this.lift.lastFullDirection !== 'down') {
+
                 this.lift.direction = 'down';
                 this.lift.lastFullDirection = 'down';
                 return;
@@ -210,6 +222,7 @@ export default class House extends Container {
 
             // Якщо немає таких пасажирів, чергуємо напрямки між ітераціями
             if (this.lift.lastFullDirection === 'down' || !this.lift.lastFullDirection) {
+                //
                 this.lift.direction = 'up';
                 this.lift.lastFullDirection = 'up';
             } else {
@@ -224,14 +237,15 @@ export default class House extends Container {
     }
 
     private getStopFloorsInDirection(): number[] {
+
         const direction = this.lift.direction;
+
         const currentFloor = this.lift.currentFloor;
+
         const liftPassengers = this.lift.passengers;
+
         const waitingPeople = this.people.filter(p => !p.isInLift);
 
-        if (direction === 'idle') {
-            return [];
-        }
 
         if (direction === 'up') {
             // Знаходимо максимальний поверх серед пасажирів у ліфті
@@ -252,8 +266,10 @@ export default class House extends Container {
 
             // Повертаємо всі поверхі від поточного до farthestFloor
             return Array.from(
+
                 { length: farthestFloor - currentFloor },
                 (_, i) => currentFloor + i + 1
+
             );
         } else { // direction === 'down'
             // Знаходимо мінімальний поверх серед пасажирів у ліфті
@@ -281,6 +297,7 @@ export default class House extends Container {
     }
 
     private getPeopleWaitingOnFloor(floor: number): People[] {
+
         return this.people.filter(p => {
             if (!p.isInLift && p.floor === floor) {
                 // Особлива логіка для крайніх поверхів
@@ -293,5 +310,14 @@ export default class House extends Container {
             }
             return false;
         });
+    }
+
+    // У файлі House.ts додайте цей метод:
+    public removePerson(person: People): void {
+        const index = this.people.indexOf(person);
+        if (index !== -1) {
+            this.people.splice(index, 1);
+        }
+        this.removeChild(person);
     }
 }

@@ -1,5 +1,6 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import Lift from './Lift';
+import House from './House';
 
 export default class People extends Container {
     public floor: number;
@@ -10,8 +11,11 @@ export default class People extends Container {
     // Показує, чи людина знаходиться в ліфті.
     private isMoving: boolean = false;
     // Показує, чи людина зараз рухається.
-
+    public get moving(): boolean {
+        return this.isMoving;
+    }
     constructor(floor: number) {
+
         super();
         this.floor = floor;
 
@@ -19,10 +23,12 @@ export default class People extends Container {
             this.targetFloor = Math.floor(Math.random() * 8) + 1;
         } while (this.targetFloor === floor);
 
+        const myColor = this.floor > this.targetFloor ? 0x00ce0f : 0x0000ff;
+
         const person = new Graphics();
         person.setStrokeStyle({
             width: 3,
-            color: 0x0000ff,
+            color: myColor,
             alpha: 1,
         });
         person.drawRect(0, 0, 20, 50);
@@ -105,18 +111,23 @@ export default class People extends Container {
     }
 
     public enterLift(lift: Lift): void {
-        // Додає людину до ліфта та оновлює її стан.
+        // Додає людину до ліфта, встановлюючи її позицію та стан.
         this.isInLift = true;
-        this.visible = false; // Ховаємо людину в ліфті
     }
 
+
     public exitLift(): void {
-        // Виводить людину з ліфта на її цільовий поверх.
         this.isInLift = false;
-        this.floor = this.targetFloor;  // Оновлюємо поточний поверх
-        this.position.y = 460 - (this.floor - 1) * 60;  // Оновлюємо позицію
+        this.floor = this.targetFloor;
+        this.position.y = 480 - (-50 + (this.floor * 60));
         this.visible = true;
-        this.moveFromLift();
+        this.moveFromLift().then(() => {
+            if (this.parent) {
+                const house = this.parent as House;
+                house.removePerson(this);
+
+            }
+        });
     }
 
 

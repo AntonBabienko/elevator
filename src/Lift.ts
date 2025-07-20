@@ -11,36 +11,59 @@ export default class Lift extends Container {
     private isMoving: boolean = false;
     public direction: 'up' | 'down' | 'idle' = 'idle'; // Змінено на public
     public lastFullDirection: 'up' | 'down' | null = null;
+    seats: boolean[] = [false, false, false];
     constructor() {
         super();
         this.currentFloor = 1;
 
-        this.liftGraphics = new Graphics();
-        this.liftGraphics.lineStyle(3, 0x0ff000, 1);
-        this.liftGraphics.drawRect(0, 0, 80, 60);
+        const g = new Graphics();
+        g.lineStyle(3, 0x00ccff, 1); // блакитний колір
+
+        // Малюємо контур ліфта з "діркою" справа
+        g.moveTo(0, 0);          // верх-ліво
+        g.lineTo(80, 0);         // верх-права
+        g.lineTo(80, 10);        // вниз трохи по правій стороні
+        g.moveTo(80, 60);        // пропускаємо середину правого боку
+        g.lineTo(80, 60);        // нижній край правого боку
+        g.lineTo(0, 60);         // низ-ліво
+        g.lineTo(0, 0);          // замикання
+
+        this.liftGraphics = g;
         this.addChild(this.liftGraphics);
+
         this.position.set(20, this.baseY);
         this.liftGraphics.stroke();
     }
 
     public async goToFloor(floor: number): Promise<void> {
+
         if (this.isMoving) return Promise.reject('Lift is already moving');
+
         if (floor < 1 || floor > 8) return Promise.reject('Invalid floor');
+
         if (floor === this.currentFloor) return Promise.resolve();
 
         this.isMoving = true;
+
         this.direction = floor > this.currentFloor ? 'up' : 'down';
 
         const targetY = this.baseY - (floor - 1) * this.floorHeight;
+
         const floorsToMove = Math.abs(floor - this.currentFloor);
-        const duration = floorsToMove * 1000; // 1 секунда на поверх
+
+        const duration = floorsToMove * 800; // 1 секунда на поверх
 
         return new Promise((resolve) => {
+
             const startY = this.position.y;
+
             const startTime = performance.now();
 
+
             const animate = (currentTime: number) => {
+
                 const elapsed = currentTime - startTime;
+
                 const progress = Math.min(elapsed / duration, 1);
 
                 this.position.y = startY + (targetY - startY) * progress;
@@ -51,8 +74,10 @@ export default class Lift extends Container {
                 );
 
                 if (currentProgressFloor !== this.currentFloor) {
+                    // this.direction = currentProgressFloor > this.currentFloor ? 'up' : 'down';
+                    // this.lastFullDirection = this.direction; // Зберігаємо останній напрямок
                     this.currentFloor = currentProgressFloor;
-                    // Тут можна додати логіку для перевірки нових пасажирів
+
                 }
 
                 if (progress < 1) {
@@ -69,32 +94,55 @@ export default class Lift extends Container {
     }
 
     public async loadPassengers(people: People[]): Promise<void> {
+        // Завантажує пасажирів до ліфта, якщо є вільне місце та людина йде в тому ж напрямку.
         if (this.isMoving) return Promise.reject('Cannot load while moving');
 
         // Фільтруємо людей, які йдуть в тому ж напрямку, що і ліфт, або якщо ліфт на крайньому поверсі
         const suitablePeople = people.filter(person => {
-            if (this.direction === 'idle') {
-                // На крайніх поверхах дозволяємо завантажуватись незалежно від напрямку
-                return (this.currentFloor === 1 && person.getDirection() === 'up') ||
-                    (this.currentFloor === 8 && person.getDirection() === 'down');
+
+            if (person.moving === false) {
+                if (this.direction === 'idle') {
+                    //
+                    // На крайніх поверхах дозволяємо завантажуватись незалежно від напрямку
+                    return (this.currentFloor === 1 && person.getDirection() === 'up') ||
+                        (this.currentFloor === 8 && person.getDirection() === 'down');
+                    //
+                }
+                return (this.direction === 'up' && person.targetFloor > this.currentFloor) ||
+                    (this.direction === 'down' && person.targetFloor < this.currentFloor);
+
             }
-            return (this.direction === 'up' && person.targetFloor > this.currentFloor) ||
-                (this.direction === 'down' && person.targetFloor < this.currentFloor);
         });
 
         // Беремо стільки людей, скільки вміщається
         const peopleToLoad = suitablePeople.slice(0, this.capacity - this.passengers.length);
 
-        if (peopleToLoad.length === 0) return Promise.resolve();
+        for (const person of peopleToLoad) {
+            const freeSeatIndex = this.seats.findIndex(seat => !seat);
+            if (freeSeatIndex !== -1) {
+                this.seats[freeSeatIndex] = true;
+                this.passengers.push(person);
+                person.enterLift(this);
 
-        // Додаємо людей до ліфта
-        this.passengers = [...this.passengers, ...peopleToLoad];
-        peopleToLoad.forEach(person => person.enterLift(this));
+
+                if (person.parent) {
+                    person.parent.removeChild(person);
+                }
+                this.addChild(person);
+                // Встановлюємо позицію людини відповідно до місця в ліфті
+                person.position.set(
+                    freeSeatIndex * 25, // X-координата (25px між місцями)
+                    10 // Y-координата (фіксована)
+                );
+            }
+        }
 
         return new Promise(resolve => setTimeout(resolve, 800));
+
     }
 
     public async unloadPassengers(): Promise<void> {
+
         if (this.isMoving) return Promise.reject('Cannot unload while moving');
 
         // Видаляємо людей, які прибули на свій поверх
@@ -110,8 +158,14 @@ export default class Lift extends Container {
 
         // Виводимо пасажирів по одному з паузою
         for (const passenger of arrivingPassengers) {
+
+
+            this.seats[passenger.position.x / 25] = false; // Звільняємо місце
             passenger.exitLift();
-            await new Promise(resolve => setTimeout(resolve, 100)); // Пауза 500 мс між пасажирами
+            this.removeChild(passenger);
+            this.emit('passengerUnloaded', passenger); // Подія для інших компонентів
+
+            await new Promise(resolve => setTimeout(resolve, 100)); // Пауза 100 мс між пасажирами
         }
     }
 
